@@ -1,0 +1,22 @@
+version: 1
+applications:
+  - appRoot: workly-front
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - nvm install 22
+            - nvm use 22
+            - npm install
+        build:
+          commands:
+            - node scripts/generate-env.js
+            - npm run build
+      artifacts:
+        baseDirectory: dist/workly-front/browser
+        files:
+          - "**/*"
+      cache:
+        paths:
+          - node_modules/**/*
+          - .angular/cache/**/*

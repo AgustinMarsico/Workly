@@ -1,0 +1,7 @@
+@AuditService.Api_HostAddress = http://localhost:5150
+
+GET {{AuditService.Api_HostAddress}}/api/audit-records?page=1&pageSize=20
+Authorization: Bearer {{admin_jwt}}
+Accept: application/json
+
+###

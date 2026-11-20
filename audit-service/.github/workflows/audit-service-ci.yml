@@ -1,0 +1,37 @@
+name: Audit Service CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build-test-coverage:
+    name: Build, test and RNF 6 coverage gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore audit-service.sln
+
+      - name: Build
+        run: dotnet build audit-service.sln --configuration Release --no-restore
+
+      - name: Test with coverage
+        run: dotnet test audit-service.sln --configuration Release --no-build --collect:"XPlat Code Coverage" --results-directory TestResults
+
+      - name: RNF 6 coverage gate
+        run: python3 scripts/check-rnf6-coverage.py

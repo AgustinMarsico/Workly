@@ -1,0 +1,10 @@
+{
+  "admin": {
+    "email": "admin@saas.com",
+    "password": "Password1"
+  },
+  "member": {
+    "email": "usuario@saas.com",
+    "password": "Password1"
+  }
+}

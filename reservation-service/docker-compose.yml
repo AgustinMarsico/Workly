@@ -1,0 +1,55 @@
+services:
+  reservation-service:
+    container_name: workly-reservation-service
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ASPNETCORE_URLS: ${ASPNETCORE_URLS:-http://+:8080}
+      ConnectionStrings__DefaultConnection: ${CONNECTION_STRING:?Configure CONNECTION_STRING in a private environment}
+      SUPER_SECRET_KEY: ${SUPER_SECRET_KEY:?Configure SUPER_SECRET_KEY}
+      MainService__BaseUrl: ${MAIN_SERVICE_BASE_URL:-http://host.docker.internal:5000}
+      MainService__TimeoutSeconds: ${MAIN_SERVICE_TIMEOUT_SECONDS:-10}
+      IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://host.docker.internal:5100}
+      IdentityService__ApiKeyValidationPath: ${IDENTITY_SERVICE_API_KEY_VALIDATION_PATH:-/api/api-keys/validate}
+      IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-10}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      SNS_RESERVATION_TOPIC_ARN: ${SNS_RESERVATION_TOPIC_ARN:-}
+      SKIP_RESERVATION_NOTIFICATION: ${SKIP_RESERVATION_NOTIFICATION:-false}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "${RESERVATION_SERVICE_PORT:-8081}:8080"
+    depends_on:
+      reservation-db:
+        condition: service_healthy
+    networks:
+      - reservation-network
+
+  reservation-db:
+    container_name: workly-reservation-db
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Configure MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-workly_reservations}
+      MYSQL_USER: ${MYSQL_USER:-workly_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Configure MYSQL_PASSWORD}
+    ports:
+      - "${MYSQL_HOST_PORT:-3307}:${MYSQL_CONTAINER_PORT:-3306}"
+    volumes:
+      - reservation-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - reservation-network
+
+volumes:
+  reservation-db-data:
+
+networks:
+  reservation-network:
+    driver: bridge

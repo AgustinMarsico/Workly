@@ -1,0 +1,4 @@
+@IdentityService_HostAddress = http://localhost:5100
+
+GET {{IdentityService_HostAddress}}/api/health
+Accept: application/json

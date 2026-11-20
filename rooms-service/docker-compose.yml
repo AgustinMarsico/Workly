@@ -1,0 +1,74 @@
+services:
+  rooms-db:
+    image: mysql:8.0
+    container_name: workly-rooms-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Configure MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-workly_rooms}
+      MYSQL_USER: ${MYSQL_USER:-workly_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Configure MYSQL_PASSWORD}
+    ports:
+      - "${MYSQL_HOST_PORT:-3309}:3306"
+    volumes:
+      - rooms-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  rooms-migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: workly-rooms-migrate
+    depends_on:
+      rooms-db:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ConnectionStrings__DefaultConnection: server=rooms-db;port=3306;database=${MYSQL_DATABASE:-workly_rooms};user=${MYSQL_USER:-workly_user};password=${MYSQL_PASSWORD:?Configure MYSQL_PASSWORD}
+      SUPER_SECRET_KEY: ${SUPER_SECRET_KEY:?Configure SUPER_SECRET_KEY}
+      IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://host.docker.internal:5100}
+      ReservationService__BaseUrl: ${RESERVATION_SERVICE_BASE_URL:-http://host.docker.internal:5200}
+      SKIP_AUDIT_QUEUE: ${SKIP_AUDIT_QUEUE:-true}
+    command: ["dotnet", "RoomsService.Api.dll", "migrate"]
+    restart: "no"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  rooms-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: workly-rooms-service
+    depends_on:
+      rooms-db:
+        condition: service_healthy
+      rooms-migrate:
+        condition: service_completed_successfully
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__DefaultConnection: server=rooms-db;port=3306;database=${MYSQL_DATABASE:-workly_rooms};user=${MYSQL_USER:-workly_user};password=${MYSQL_PASSWORD:?Configure MYSQL_PASSWORD}
+      SUPER_SECRET_KEY: ${SUPER_SECRET_KEY:?Configure SUPER_SECRET_KEY}
+      IdentityService__BaseUrl: ${IDENTITY_SERVICE_BASE_URL:-http://host.docker.internal:5100}
+      IdentityService__TimeoutSeconds: ${IDENTITY_SERVICE_TIMEOUT_SECONDS:-10}
+      IdentityService__ApiKeyValidationPath: ${IDENTITY_SERVICE_API_KEY_VALIDATION_PATH:-/api/api-keys/validate}
+      ReservationService__BaseUrl: ${RESERVATION_SERVICE_BASE_URL:-http://host.docker.internal:5200}
+      ReservationService__TimeoutSeconds: ${RESERVATION_SERVICE_TIMEOUT_SECONDS:-10}
+      SKIP_AUDIT_QUEUE: ${SKIP_AUDIT_QUEUE:-true}
+    ports:
+      - "${ROOMS_SERVICE_PORT:-5300}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  rooms-db-data:

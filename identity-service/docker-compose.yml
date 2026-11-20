@@ -1,0 +1,56 @@
+x-identity-build: &identity-build
+  context: ./backend
+  dockerfile: IdentityService.Api/Dockerfile
+  args:
+    NEW_RELIC_LICENSE_KEY: ${NEW_RELIC_LICENSE_KEY:-}
+
+x-identity-environment: &identity-environment
+  ConnectionStrings__DefaultConnection: server=identity-db;port=3306;database=workly_identity;user=root;password=${MYSQL_ROOT_PASSWORD:?Configure MYSQL_ROOT_PASSWORD}
+  SUPER_SECRET_KEY: ${SUPER_SECRET_KEY:?Configure SUPER_SECRET_KEY}
+  API_KEY_SECRET: ${API_KEY_SECRET:?Configure API_KEY_SECRET}
+  OrganizationService__BaseUrl: ${ORGANIZATION_SERVICE_BASE_URL:-http://host.docker.internal:5000}
+  SKIP_AUDIT_QUEUE: "true"
+  SKIP_INVITATION_NOTIFICATION: "true"
+
+services:
+  identity-db:
+    image: mysql:8.4
+    container_name: identity-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Configure MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: workly_identity
+    volumes:
+      - identity-db-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_ROOT_PASSWORD}\" mysqladmin ping -h localhost -uroot --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  identity-migrate:
+    build: *identity-build
+    container_name: identity-migrate
+    command: ["migrate"]
+    depends_on:
+      identity-db:
+        condition: service_healthy
+    environment: *identity-environment
+    restart: "no"
+
+  identity-api:
+    build: *identity-build
+    container_name: identity-api
+    depends_on:
+      identity-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "5100:8080"
+    environment:
+      <<: *identity-environment
+      ASPNETCORE_ENVIRONMENT: Development
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  identity-db-data:

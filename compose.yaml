@@ -1,0 +1,263 @@
+# Configuración exclusiva para desarrollo local. No usar los Compose individuales
+# a la vez que éste. .env se usa para interpolar, nunca se inyecta completo.
+x-api-environment: &api-environment
+  ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Development}
+  ASPNETCORE_URLS: http://+:8080
+  SUPER_SECRET_KEY: ${SUPER_SECRET_KEY:?Generar .env con scripts/init-local-env.py}
+  SKIP_AUDIT_QUEUE: ${SKIP_AUDIT_QUEUE:-true}
+  CORECLR_ENABLE_PROFILING: "0"
+
+x-mysql-healthcheck: &mysql-healthcheck
+  test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_PASSWORD}\" mysql -h 127.0.0.1 -u\"$${MYSQL_USER}\" -D\"$${MYSQL_DATABASE}\" -e 'SELECT 1' >/dev/null 2>&1"]
+  interval: 5s
+  timeout: 5s
+  retries: 30
+  start_period: 30s
+
+x-company-build: &company-build
+  context: ./company-service/backend
+  dockerfile: workly-api/Dockerfile
+  args:
+    INSTALL_NEW_RELIC: "false"
+x-company-environment: &company-environment
+  <<: *api-environment
+  ConnectionStrings__DefaultConnection: server=company-db;port=3306;database=${COMPANY_DB_NAME:-worklydb};user=${MYSQL_APP_USER:-workly};password=${COMPANY_DB_PASSWORD:?Falta COMPANY_DB_PASSWORD}
+  INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:?Falta INTERNAL_SERVICE_KEY}
+  IdentityService__BaseUrl: http://identity-api:8080
+  IdentityService__ApiKeyValidationPath: /api/api-keys/validate
+  IdentityService__UsersByAreaPath: /api/users
+  ReservationService__BaseUrl: http://reservation-api:8080
+
+x-identity-build: &identity-build
+  context: ./identity-service/backend
+  dockerfile: IdentityService.Api/Dockerfile
+  args:
+    INSTALL_NEW_RELIC: "false"
+x-identity-environment: &identity-environment
+  <<: *api-environment
+  ConnectionStrings__DefaultConnection: server=identity-db;port=3306;database=${IDENTITY_DB_NAME:-workly_identity};user=${MYSQL_APP_USER:-workly};password=${IDENTITY_DB_PASSWORD:?Falta IDENTITY_DB_PASSWORD}
+  INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:?Falta INTERNAL_SERVICE_KEY}
+  API_KEY_SECRET: ${API_KEY_SECRET:?Falta API_KEY_SECRET}
+  OrganizationService__BaseUrl: http://company-api:8080
+  SKIP_INVITATION_NOTIFICATION: ${SKIP_INVITATION_NOTIFICATION:-true}
+
+x-rooms-build: &rooms-build
+  context: ./rooms-service/backend
+  dockerfile: Dockerfile
+  args:
+    INSTALL_NEW_RELIC: "false"
+x-rooms-environment: &rooms-environment
+  <<: *api-environment
+  ConnectionStrings__DefaultConnection: server=rooms-db;port=3306;database=${ROOMS_DB_NAME:-workly_rooms};user=${MYSQL_APP_USER:-workly};password=${ROOMS_DB_PASSWORD:?Falta ROOMS_DB_PASSWORD}
+  IdentityService__BaseUrl: http://identity-api:8080
+  IdentityService__ApiKeyValidationPath: /api/api-keys/validate
+  ReservationService__BaseUrl: http://reservation-api:8080
+
+x-audit-build: &audit-build
+  context: ./audit-service
+  dockerfile: Dockerfile
+  args:
+    INSTALL_NEW_RELIC: "false"
+
+services:
+  company-db:
+    image: docker.io/library/mysql:8.0
+    stop_grace_period: 60s
+    environment:
+      MYSQL_ROOT_PASSWORD: ${COMPANY_DB_ROOT_PASSWORD:?Falta COMPANY_DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${COMPANY_DB_NAME:-worklydb}
+      MYSQL_USER: ${MYSQL_APP_USER:-workly}
+      MYSQL_PASSWORD: ${COMPANY_DB_PASSWORD:?Falta COMPANY_DB_PASSWORD}
+    volumes:
+      - company-db-data:/var/lib/mysql
+    healthcheck: *mysql-healthcheck
+
+  company-migrate:
+    image: localhost/workly-company:local
+    build: *company-build
+    environment: *company-environment
+    command: ["migrate"]
+    depends_on:
+      company-db:
+        condition: service_healthy
+    restart: "no"
+
+  company-api:
+    image: localhost/workly-company:local
+    build: *company-build
+    environment: *company-environment
+    ports:
+      - "127.0.0.1:${COMPANY_PORT:-5000}:8080"
+    depends_on:
+      company-migrate:
+        condition: service_completed_successfully
+
+  identity-db:
+    image: docker.io/library/mysql:8.4
+    stop_grace_period: 60s
+    environment:
+      MYSQL_ROOT_PASSWORD: ${IDENTITY_DB_ROOT_PASSWORD:?Falta IDENTITY_DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${IDENTITY_DB_NAME:-workly_identity}
+      MYSQL_USER: ${MYSQL_APP_USER:-workly}
+      MYSQL_PASSWORD: ${IDENTITY_DB_PASSWORD:?Falta IDENTITY_DB_PASSWORD}
+    volumes:
+      - identity-db-data:/var/lib/mysql
+    healthcheck: *mysql-healthcheck
+
+  identity-migrate:
+    image: localhost/workly-identity:local
+    build: *identity-build
+    environment: *identity-environment
+    command: ["migrate"]
+    depends_on:
+      identity-db:
+        condition: service_healthy
+    restart: "no"
+
+  identity-api:
+    image: localhost/workly-identity:local
+    build: *identity-build
+    environment: *identity-environment
+    ports:
+      - "127.0.0.1:${IDENTITY_PORT:-5100}:8080"
+    depends_on:
+      identity-migrate:
+        condition: service_completed_successfully
+
+  rooms-db:
+    image: docker.io/library/mysql:8.0
+    stop_grace_period: 60s
+    environment:
+      MYSQL_ROOT_PASSWORD: ${ROOMS_DB_ROOT_PASSWORD:?Falta ROOMS_DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${ROOMS_DB_NAME:-workly_rooms}
+      MYSQL_USER: ${MYSQL_APP_USER:-workly}
+      MYSQL_PASSWORD: ${ROOMS_DB_PASSWORD:?Falta ROOMS_DB_PASSWORD}
+    volumes:
+      - rooms-db-data:/var/lib/mysql
+    healthcheck: *mysql-healthcheck
+
+  rooms-migrate:
+    image: localhost/workly-rooms:local
+    build: *rooms-build
+    environment: *rooms-environment
+    command: ["migrate"]
+    depends_on:
+      rooms-db:
+        condition: service_healthy
+    restart: "no"
+
+  rooms-api:
+    image: localhost/workly-rooms:local
+    build: *rooms-build
+    environment: *rooms-environment
+    ports:
+      - "127.0.0.1:${ROOMS_PORT:-5300}:8080"
+    depends_on:
+      rooms-migrate:
+        condition: service_completed_successfully
+
+  reservation-db:
+    image: docker.io/library/mysql:8.0
+    stop_grace_period: 60s
+    environment:
+      MYSQL_ROOT_PASSWORD: ${RESERVATION_DB_ROOT_PASSWORD:?Falta RESERVATION_DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${RESERVATION_DB_NAME:-workly_reservations}
+      MYSQL_USER: ${MYSQL_APP_USER:-workly}
+      MYSQL_PASSWORD: ${RESERVATION_DB_PASSWORD:?Falta RESERVATION_DB_PASSWORD}
+    volumes:
+      - reservation-db-data:/var/lib/mysql
+    healthcheck: *mysql-healthcheck
+
+  reservation-api:
+    image: localhost/workly-reservation:local
+    build:
+      context: ./reservation-service
+      dockerfile: Dockerfile
+      args:
+        INSTALL_NEW_RELIC: "false"
+    environment:
+      <<: *api-environment
+      ConnectionStrings__DefaultConnection: server=reservation-db;port=3306;database=${RESERVATION_DB_NAME:-workly_reservations};user=${MYSQL_APP_USER:-workly};password=${RESERVATION_DB_PASSWORD:?Falta RESERVATION_DB_PASSWORD}
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:?Falta INTERNAL_SERVICE_KEY}
+      MainService__BaseUrl: http://company-api:8080
+      IdentityService__BaseUrl: http://identity-api:8080
+      IdentityService__ApiKeyValidationPath: /api/api-keys/validate
+      RoomsService__BaseUrl: http://rooms-api:8080
+      SKIP_RESERVATION_NOTIFICATION: ${SKIP_RESERVATION_NOTIFICATION:-true}
+    ports:
+      - "127.0.0.1:${RESERVATION_PORT:-8081}:8080"
+    depends_on:
+      reservation-db:
+        condition: service_healthy
+      company-api:
+        condition: service_started
+      identity-api:
+        condition: service_started
+      rooms-api:
+        condition: service_started
+
+  audit-db:
+    profiles: ["audit"]
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    stop_grace_period: 60s
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${AUDIT_DB_SA_PASSWORD:?Falta AUDIT_DB_SA_PASSWORD}
+    volumes:
+      - audit-db-data:/var/opt/mssql
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -Q 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  audit-migrate:
+    image: localhost/workly-audit:local
+    profiles: ["audit"]
+    build: *audit-build
+    environment:
+      <<: *api-environment
+      ConnectionStrings__AuditMigrationDatabase: Server=audit-db,1433;Database=${AUDIT_DB_NAME:-workly_audit};User Id=sa;Password=${AUDIT_DB_SA_PASSWORD:?Falta AUDIT_DB_SA_PASSWORD};TrustServerCertificate=True;
+      ConnectionStrings__AuditDatabase: Server=audit-db,1433;Database=${AUDIT_DB_NAME:-workly_audit};User Id=sa;Password=${AUDIT_DB_SA_PASSWORD:?Falta AUDIT_DB_SA_PASSWORD};TrustServerCertificate=True;
+      AUDIT_DB_APP_USERNAME: ${AUDIT_DB_APP_USERNAME:-audit_user}
+      AUDIT_DB_APP_PASSWORD: ${AUDIT_DB_APP_PASSWORD:?Falta AUDIT_DB_APP_PASSWORD}
+    command: ["migrate"]
+    depends_on:
+      audit-db:
+        condition: service_healthy
+    restart: "no"
+
+  audit-api:
+    image: localhost/workly-audit:local
+    profiles: ["audit"]
+    build: *audit-build
+    environment:
+      <<: *api-environment
+      ConnectionStrings__AuditDatabase: Server=audit-db,1433;Database=${AUDIT_DB_NAME:-workly_audit};User Id=${AUDIT_DB_APP_USERNAME:-audit_user};Password=${AUDIT_DB_APP_PASSWORD:?Falta AUDIT_DB_APP_PASSWORD};TrustServerCertificate=True;
+    ports:
+      - "127.0.0.1:${AUDIT_PORT:-5151}:8080"
+    depends_on:
+      audit-migrate:
+        condition: service_completed_successfully
+
+  frontend:
+    image: localhost/workly-frontend:local
+    build:
+      context: ./frontend/workly-front
+      dockerfile: Dockerfile
+      args:
+        API_URL: ${PUBLIC_COMPANY_API_URL:-http://localhost:5000}
+        IDENTITY_API_URL: ${PUBLIC_IDENTITY_API_URL:-http://localhost:5100}
+        ROOMS_API_URL: ${PUBLIC_ROOMS_API_URL:-http://localhost:5300}
+        RESERVATION_API_URL: ${PUBLIC_RESERVATION_API_URL:-http://localhost:8081}
+        AUDIT_API_URL: ${PUBLIC_AUDIT_API_URL:-http://localhost:5151}
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:80"
+
+volumes:
+  company-db-data:
+  identity-db-data:
+  rooms-db-data:
+  reservation-db-data:
+  audit-db-data:

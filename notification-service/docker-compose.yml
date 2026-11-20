@@ -1,0 +1,14 @@
+services:
+  worker:
+    build: ./worker
+    env_file:
+      - .env
+    environment:
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      SQS_QUEUE_URL: ${SQS_QUEUE_URL}
+      SQS_INVITATION_QUEUE_URL: ${SQS_INVITATION_QUEUE_URL}
+      INVITATION_BASE_URL: ${INVITATION_BASE_URL}
+      BREVO_API_KEY: ${BREVO_API_KEY}
+      BREVO_SENDER_EMAIL: ${BREVO_SENDER_EMAIL}
+      BREVO_SENDER_NAME: ${BREVO_SENDER_NAME:-Notifications}
+    restart: unless-stopped

@@ -1,0 +1,39 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+
+# Local configuration
+.env
+.env.*
+!.env.example
+
+# Logs and diagnostics
+logs/
+*.log
+*.binlog
+TestResults/
+coverage/
+coverage*.json
+coverage*.xml
+coverage*.info
+
+# IDE/user files
+.vs/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.user
+*.suo
+*.rsuser
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,64 @@
+name: rooms-service-ci
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  test:
+    name: Build, test and RNF 6 coverage gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.x
+
+      - name: Restore test projects
+        run: |
+          dotnet restore "RoomsService.ApiTest/RoomsService.ApiTest.csproj"
+          dotnet restore "BusinessLogicTest/BusinessLogicTest.csproj"
+          dotnet restore "DataAccessTest/DataAccessTest.csproj"
+
+      - name: Build test projects
+        run: |
+          dotnet build "RoomsService.ApiTest/RoomsService.ApiTest.csproj" --configuration Release --no-restore
+          dotnet build "BusinessLogicTest/BusinessLogicTest.csproj" --configuration Release --no-restore
+          dotnet build "DataAccessTest/DataAccessTest.csproj" --configuration Release --no-restore
+
+      - name: Test API with coverage
+        run: |
+          dotnet test "RoomsService.ApiTest/RoomsService.ApiTest.csproj" \
+            --configuration Release \
+            --no-build \
+            --collect:"XPlat Code Coverage" \
+            --results-directory "TestResults/api"
+
+      - name: Test BusinessLogic with coverage
+        run: |
+          dotnet test "BusinessLogicTest/BusinessLogicTest.csproj" \
+            --configuration Release \
+            --no-build \
+            --collect:"XPlat Code Coverage" \
+            --results-directory "TestResults/business"
+
+      - name: Test DataAccess with coverage
+        run: |
+          dotnet test "DataAccessTest/DataAccessTest.csproj" \
+            --configuration Release \
+            --no-build \
+            --collect:"XPlat Code Coverage" \
+            --results-directory "TestResults/data"
+
+      - name: RNF 6 coverage gate
+        run: python3 scripts/check-rnf6-coverage.py

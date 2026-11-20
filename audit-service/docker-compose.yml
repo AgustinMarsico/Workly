@@ -1,0 +1,52 @@
+services:
+  audit-db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: workly-audit-db
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${SA_PASSWORD:?Configure SA_PASSWORD}
+    ports:
+      - "1434:1433"
+    volumes:
+      - audit_db_data:/var/opt/mssql
+
+  audit-migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: workly-audit-migrate
+    depends_on:
+      - audit-db
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      SUPER_SECRET_KEY: ${SUPER_SECRET_KEY:?Configure SUPER_SECRET_KEY}
+      ConnectionStrings__AuditMigrationDatabase: Server=audit-db,1433;Database=workly_audit;User Id=sa;Password=${SA_PASSWORD:?Configure SA_PASSWORD};TrustServerCertificate=True;
+      ConnectionStrings__AuditDatabase: Server=audit-db,1433;Database=workly_audit;User Id=sa;Password=${SA_PASSWORD:?Configure SA_PASSWORD};TrustServerCertificate=True;
+      AUDIT_DB_APP_USERNAME: ${AUDIT_DB_APP_USERNAME:-audit_user}
+      AUDIT_DB_APP_PASSWORD: ${AUDIT_DB_APP_PASSWORD:?Configure AUDIT_DB_APP_PASSWORD}
+    command: ["dotnet", "AuditService.Api.dll", "migrate"]
+    restart: "no"
+
+  audit-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: workly-audit-api
+    depends_on:
+      audit-migrate:
+        condition: service_completed_successfully
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      SUPER_SECRET_KEY: ${SUPER_SECRET_KEY:?Configure SUPER_SECRET_KEY}
+      ConnectionStrings__AuditDatabase: Server=audit-db,1433;Database=workly_audit;User Id=${AUDIT_DB_APP_USERNAME:-audit_user};Password=${AUDIT_DB_APP_PASSWORD:?Configure AUDIT_DB_APP_PASSWORD};TrustServerCertificate=True;
+      AWS_REGION: ${AWS_REGION}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN}
+      SQS_AUDIT_QUEUE_URL: ${SQS_AUDIT_QUEUE_URL}
+      SKIP_AUDIT_QUEUE: ${SKIP_AUDIT_QUEUE:-false}
+    ports:
+      - "5151:8080"
+
+volumes:
+  audit_db_data:

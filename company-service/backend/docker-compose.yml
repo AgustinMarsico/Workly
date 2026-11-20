@@ -1,0 +1,90 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: workly-db
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Configure MYSQL_ROOT_PASSWORD in a private environment}
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: worklydb
+    ports:
+      - "3308:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_ROOT_PASSWORD}\" mysqladmin ping -h 127.0.0.1 -uroot --silent"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 20s
+
+  migrate:
+    build:
+      context: .
+      dockerfile: workly-api/Dockerfile
+    container_name: workly-migrate
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - ConnectionStrings__DefaultConnection=server=db;port=3306;database=worklydb;user=root;password=${MYSQL_ROOT_PASSWORD:?Configure MYSQL_ROOT_PASSWORD}
+      - DEFAULT_CONNECTION_STRING=server=db;port=3306;database=worklydb;user=root;password=${MYSQL_ROOT_PASSWORD:?Configure MYSQL_ROOT_PASSWORD}
+      - SUPER_SECRET_KEY=${SUPER_SECRET_KEY:?Configure SUPER_SECRET_KEY}
+      - NEW_RELIC_LICENSE_KEY=${NEW_RELIC_LICENSE_KEY}
+      - NEW_RELIC_APP_NAME=workly-api-migrate
+      - NEW_RELIC_DISTRIBUTED_TRACING_ENABLED=true
+      - NEW_RELIC_APPLICATION_LOGGING_ENABLED=true
+      - NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED=true
+      - NEW_RELIC_APPLICATION_LOGGING_METRICS_ENABLED=true
+    command: ["dotnet", "workly-api.dll", "migrate"]
+
+  api:
+    build:
+      context: .
+      dockerfile: workly-api/Dockerfile
+    container_name: workly-api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=server=db;port=3306;database=worklydb;user=root;password=${MYSQL_ROOT_PASSWORD:?Configure MYSQL_ROOT_PASSWORD}
+      - DEFAULT_CONNECTION_STRING=server=db;port=3306;database=worklydb;user=root;password=${MYSQL_ROOT_PASSWORD:?Configure MYSQL_ROOT_PASSWORD}
+      - SUPER_SECRET_KEY=${SUPER_SECRET_KEY:?Configure SUPER_SECRET_KEY}
+      - NEW_RELIC_LICENSE_KEY=${NEW_RELIC_LICENSE_KEY}
+      - NEW_RELIC_APP_NAME=workly-api
+      - NEW_RELIC_HOME=/usr/local/newrelic-dotnet-agent
+      - NEW_RELIC_DISTRIBUTED_TRACING_ENABLED=true
+      - NEW_RELIC_APPLICATION_LOGGING_ENABLED=true
+      - NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED=true
+      - NEW_RELIC_APPLICATION_LOGGING_METRICS_ENABLED=true
+
+      - ReservationService__BaseUrl=http://host.docker.internal:8081
+      - ReservationService__TopRoomsPath=/api/reservations/top-rooms
+      - ReservationService__TimeoutSeconds=10
+
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}
+      - SQS_AUDIT_QUEUE_URL=${SQS_AUDIT_QUEUE_URL:-}
+      - SKIP_AUDIT_QUEUE=${SKIP_AUDIT_QUEUE:-false}
+      - IdentityService__BaseUrl=${IDENTITY_SERVICE_BASE_URL:-http://host.docker.internal:5100}
+      - IdentityService__ApiKeyValidationPath=/api/api-keys/validate
+      - IdentityService__UsersByAreaPath=/api/users
+      - IdentityService__TimeoutSeconds=10
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    ports:
+      - "5000:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+volumes:
+  db_data:

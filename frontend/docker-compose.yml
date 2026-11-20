@@ -1,0 +1,13 @@
+version: "3.8"
+services:
+  workly-front:
+    build:
+      context: ./workly-front
+      dockerfile: Dockerfile
+      args:
+        API_URL: http://localhost:5000
+        RESERVATION_API_URL: http://localhost:8081
+    image: workly-front:latest
+    ports:
+      - "8080:80"
+    restart: unless-stopped
