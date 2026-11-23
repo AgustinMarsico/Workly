@@ -34,6 +34,7 @@ try
 
     builder.Services.AddScoped<IAuditRecordRepository, EfAuditRecordRepository>();
     builder.Services.AddScoped<IAuditEventService, AuditEventService>();
+    builder.Services.AddDefaultAWSOptions(builder.Configuration.GetAWSOptions());
     builder.Services.AddAWSService<IAmazonSQS>();
 
     if (!builder.Configuration.GetValue("SKIP_AUDIT_QUEUE", false))

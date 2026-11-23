@@ -17,6 +17,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--build", action="store_true", help="Construir imágenes antes de arrancar")
     parser.add_argument("--audit", action="store_true", help="Incluir Audit y SQL Server (más memoria)")
+    parser.add_argument("--messaging", action="store_true", help="Incluir LocalStack, Mailpit y notificaciones locales")
     args = parser.parse_args()
     if not (ROOT / ".env").is_file():
         raise SystemExit("Primero ejecutá: python3 scripts/init-local-env.py")
@@ -34,8 +35,11 @@ def main():
         if value and ("PASSWORD" in key or "SECRET" in key or key == "INTERNAL_SERVICE_KEY")
     ]
     compose = ["podman", "compose", "--env-file", ".env", "-f", "compose.yaml"]
+    if args.messaging:
+        compose += ["-f", "compose.messaging.yaml"]
     if args.audit:
         compose += ["--profile", "audit"]
+    project = values.get("COMPOSE_PROJECT_NAME", "workly")
 
     def run(command, label, timeout=300):
         print(label, flush=True)
@@ -56,7 +60,7 @@ def main():
                     if response.status == 200:
                         print(f"{service}: HTTP 200", flush=True)
                         return
-            except (urllib.error.URLError, TimeoutError):
+            except (urllib.error.URLError, OSError):
                 pass
             time.sleep(1)
         raise RuntimeError(f"{service} no respondió correctamente en {url}")
@@ -67,14 +71,28 @@ def main():
             builds = ["company-api", "identity-api", "rooms-api", "reservation-api", "frontend"]
             if args.audit:
                 builds.append("audit-api")
+            if args.messaging:
+                builds.append("notification-worker")
             for service in builds:
                 run(compose + ["build", service], f"Construyendo {service}", timeout=1800)
+
+        if args.messaging:
+            run(compose + ["up", "-d", "--no-deps", "localstack", "mailpit"], "Arrancando LocalStack y Mailpit")
+            run(
+                ["podman", "wait", "--condition", "healthy", f"{project}_localstack_1", f"{project}_mailpit_1"],
+                "Esperando inicialización de SNS/SQS y SMTP local",
+            )
+            ready("Mailpit", values.get("MAILPIT_PORT", "8025"), "/readyz")
+            run(compose + ["up", "-d", "--no-deps", "--force-recreate", "notification-worker"], "Arrancando worker de notificaciones")
+            run(
+                ["podman", "wait", "--condition", "healthy", f"{project}_notification-worker_1"],
+                "Esperando worker saludable",
+            )
 
         databases = ["company-db", "identity-db", "rooms-db", "reservation-db"]
         if args.audit:
             databases.append("audit-db")
         run(compose + ["up", "-d", "--no-deps", *databases], "Arrancando bases de datos")
-        project = values.get("COMPOSE_PROJECT_NAME", "workly")
         containers = [f"{project}_{service}_1" for service in databases]
         run(["podman", "wait", "--condition", "healthy", *containers], "Esperando bases saludables")
 
@@ -91,7 +109,9 @@ def main():
         apis = ["company-api", "identity-api", "rooms-api"]
         if args.audit:
             apis.append("audit-api")
-        run(compose + ["up", "-d", "--no-deps", *apis], "Arrancando APIs migradas")
+        # podman-compose puede conservar contenedores con una imagen anterior.
+        # Recrear sólo aplicaciones también aplica cambios de modo sin tocar las bases.
+        run(compose + ["up", "-d", "--no-deps", "--force-recreate", *apis], "Arrancando APIs migradas")
         for service, port, path in [
             ("Company", values.get("COMPANY_PORT", "5000"), "/health"),
             ("Identity", values.get("IDENTITY_PORT", "5100"), "/api/health"),
@@ -103,12 +123,14 @@ def main():
 
         # Reservation migra al iniciar; su health confirma que terminó antes de servir.
         run(
-            compose + ["up", "-d", "--no-deps", "reservation-api", "frontend"],
+            compose + ["up", "-d", "--no-deps", "--force-recreate", "reservation-api", "frontend"],
             "Arrancando Reservation y frontend",
         )
         ready("Reservation", values.get("RESERVATION_PORT", "8081"), "/health")
         ready("Frontend", values.get("FRONTEND_PORT", "8080"), "/")
         print(f"Workly listo: http://localhost:{values.get('FRONTEND_PORT', '8080')}")
+        if args.messaging:
+            print(f"Correos locales: http://localhost:{values.get('MAILPIT_PORT', '8025')}")
     except (RuntimeError, subprocess.TimeoutExpired, OSError) as error:
         raise SystemExit(
             f"Arranque interrumpido: {error}\n"

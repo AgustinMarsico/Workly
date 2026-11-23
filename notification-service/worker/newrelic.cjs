@@ -1,6 +1,7 @@
 'use strict';
 
 exports.config = {
+  agent_enabled: Boolean(process.env.NEW_RELIC_LICENSE_KEY),
   app_name: [process.env.NEW_RELIC_APP_NAME || 'notification-worker'],
   license_key: process.env.NEW_RELIC_LICENSE_KEY,
   distributed_tracing: {

@@ -128,6 +128,7 @@ public class Program
 
             builder.Services.AddWorklyAuthentication(builder.Configuration);
 
+            builder.Services.AddDefaultAWSOptions(builder.Configuration.GetAWSOptions());
             builder.Services.AddAWSService<IAmazonSQS>();
             builder.Services.AddAWSService<IAmazonSimpleNotificationService>();
 

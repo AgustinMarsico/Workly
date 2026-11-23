@@ -34,6 +34,7 @@ builder.Services.AddTransient<WorklyReservationService.WebApi.Observability.Corr
 
 builder.Services.AddWorklyReservationPersistence(builder.Configuration);
 builder.Services.AddCustomServices(builder.Configuration);
+builder.Services.AddDefaultAWSOptions(builder.Configuration.GetAWSOptions());
 builder.Services.AddAWSService<IAmazonSimpleNotificationService>();
 builder.Services.AddAWSService<IAmazonSQS>();
 string? skipAuditQueue = builder.Configuration["SKIP_AUDIT_QUEUE"];

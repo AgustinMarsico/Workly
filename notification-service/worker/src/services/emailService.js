@@ -1,89 +1,79 @@
-import * as brevo from '@getbrevo/brevo';
+import { BrevoClient } from '@getbrevo/brevo';
 import nodemailer from 'nodemailer';
 import { config } from '../config.js';
 
-const apiInstance = new brevo.TransactionalEmailsApi();
-if (config.brevo.deliveryMode === 'brevo') {
-  apiInstance.setApiKey(
-    brevo.TransactionalEmailsApiApiKeys.apiKey,
-    config.brevo.apiKey
-  );
-}
+export function createEmailService(settings, {
+  createBrevoClient = (options) => new BrevoClient(options),
+  createTransport = (options) => nodemailer.createTransport(options),
+  logger = console,
+} = {}) {
+  const mode = settings.brevo.deliveryMode;
+  if (!['brevo', 'smtp', 'log'].includes(mode)) {
+    throw new Error('Unsupported email delivery mode');
+  }
 
-const smtpTransport =
-  config.brevo.deliveryMode === 'smtp'
-    ? nodemailer.createTransport({
-        host: config.smtp.host,
-        port: config.smtp.port,
-        secure: config.smtp.port === 465,
-        requireTLS: config.smtp.useSsl,
-        auth: {
-          user: config.smtp.username,
-          pass: config.smtp.password,
-        },
+  const brevoClient = mode === 'brevo'
+    ? createBrevoClient({ apiKey: settings.brevo.apiKey })
+    : null;
+  const smtpTransport = mode === 'smtp'
+    ? createTransport({
+        host: settings.smtp.host,
+        port: settings.smtp.port,
+        secure: settings.smtp.port === 465,
+        requireTLS: settings.smtp.useSsl,
+        ...(settings.smtp.username && settings.smtp.password
+          ? { auth: { user: settings.smtp.username, pass: settings.smtp.password } }
+          : {}),
       })
     : null;
 
-export async function sendEmail({ to, subject, htmlContent, textContent }) {
-  if (config.brevo.deliveryMode === 'log') {
-    console.log('Email delivery skipped in log mode', {
-      to,
-      subject,
-      textContent: textContent ?? stripHtml(htmlContent),
-    });
-    return { skipped: true, mode: 'log' };
-  }
+  return async function sendEmail({ to, subject, htmlContent, textContent }) {
+    const text = textContent ?? stripHtml(htmlContent);
 
-  if (config.brevo.deliveryMode === 'smtp') {
-    const result = await smtpTransport.sendMail({
-      from: {
-        address: config.smtp.senderEmail,
-        name: config.smtp.senderName,
-      },
-      to,
-      subject,
-      html: htmlContent,
-      text: textContent ?? stripHtml(htmlContent),
-    });
+    if (mode === 'log') {
+      // No registrar contenido: puede incluir tokens de invitación de un solo uso.
+      logger.log('Email delivery skipped in log mode', { to, subject });
+      return { skipped: true, mode: 'log' };
+    }
 
-    console.log('SMTP success', {
-      messageId: result.messageId,
-      accepted: result.accepted,
-      rejected: result.rejected,
-    });
+    if (mode === 'smtp') {
+      const result = await smtpTransport.sendMail({
+        from: {
+          address: settings.smtp.senderEmail,
+          name: settings.smtp.senderName,
+        },
+        to,
+        subject,
+        html: htmlContent,
+        text,
+      });
+      logger.log('SMTP success', { messageId: result.messageId });
+      return result;
+    }
 
-    return result;
-  }
-
-  try {	
-  const sendSmtpEmail = new brevo.SendSmtpEmail();
-  sendSmtpEmail.sender = {
-    email: config.brevo.senderEmail,
-    name: config.brevo.senderName,
+    try {
+      const result = await brevoClient.transactionalEmails.sendTransacEmail({
+        sender: {
+          email: settings.brevo.senderEmail,
+          name: settings.brevo.senderName,
+        },
+        to: [{ email: to }],
+        subject,
+        htmlContent,
+        textContent: text,
+      });
+      logger.log('Brevo success', { messageId: result.messageId });
+      return result;
+    } catch (error) {
+      // No volcar objetos HTTP que puedan contener headers o cuerpos privados.
+      logger.error('Brevo delivery failed', { statusCode: error.statusCode });
+      throw error;
+    }
   };
-  sendSmtpEmail.to = [{ email: to }];
-  sendSmtpEmail.subject = subject;
-  sendSmtpEmail.htmlContent = htmlContent;
-  sendSmtpEmail.textContent = textContent ?? stripHtml(htmlContent);
-
-  const result = await apiInstance.sendTransacEmail(sendSmtpEmail);
-
-  console.log('Brevo success', result);
-
-    return result;
-  } catch (error) {
-    console.error('Brevo error details', {
-      message: error.message,
-      status: error.status,
-      code: error.code,
-      response: error.response,
-      body: error.body,
-    });
-
-    throw error;
-  }
 }
 
 function stripHtml(html) {
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
 }
+
+export const sendEmail = createEmailService(config);

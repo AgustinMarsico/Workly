@@ -21,8 +21,18 @@ export class AuthService {
 
   readonly session = signal<Session | null>(this.storage.get<Session>(WORKLY_SESSION_KEY));
 
-  readonly isAuthenticated = () => !!this.session()?.token;
+  readonly isAuthenticated = () => {
+    const token = this.session()?.token;
+    return !!token && !isTokenExpired(token);
+  };
   readonly role = () => this.session()?.role;
+
+  constructor() {
+    if (this.session() && !this.isAuthenticated()) {
+      this.storage.remove(WORKLY_SESSION_KEY);
+      this.session.set(null);
+    }
+  }
 
   login(email: string, password: string) {
     return this.api.post<LoginResponse>('/api/auth/login', { email, password }).pipe(
@@ -58,6 +68,11 @@ export class AuthService {
 
     return { token, role, email, companyId };
   }
+}
+
+export function isTokenExpired(token: string): boolean {
+  const payload = safeDecodeJwtPayload(token);
+  return typeof payload?.exp !== 'number' || !Number.isFinite(payload.exp) || payload.exp * 1000 <= Date.now();
 }
 
 function safeDecodeJwtPayload(token: string): any {

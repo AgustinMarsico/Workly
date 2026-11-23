@@ -67,7 +67,7 @@ correos electrónicos. Utiliza dos colas SQS alimentadas por topics SNS. No expo
 una API de negocio ni mantiene una base de datos propia.
 
 - **Tecnologías:** Node.js, AWS SNS/SQS y Brevo; también admite SMTP o modo log.
-- **Ejecución local inicial:** desactivado, sin envío de correos.
+- **Ejecución local:** activar con `--messaging`; correos capturados en Mailpit.
 - **Carpeta:** [notification-service](notification-service/)
 
 ### Frontend
@@ -118,15 +118,26 @@ Para incluir Audit y SQL Server, con mayor consumo de memoria:
 python3 scripts/up-local.py --build --audit
 ```
 
-En el modo local inicial, AWS, la auditoría asíncrona y los correos están
-desactivados. El perfil Audit permite consultar sus datos iniciales, pero no
-recibe nuevos eventos sin configurar SQS. Notification no forma parte de este
-arranque; sus dependencias requieren revisión de seguridad antes de habilitarlo.
+Para probar invitaciones y correos sin cuentas AWS ni proveedor externo:
+
+```bash
+python3 scripts/up-local.py --build --messaging
+# Prueba API completa; crea un usuario ficticio y conserva su correo local:
+python3 scripts/check-local-invitation.py
+```
+
+El modo `--messaging` incorpora LocalStack (SNS/SQS), el worker y Mailpit:
+**http://localhost:8025**. Los correos no salen a Internet. También publica eventos
+de auditoría en una cola FIFO local; para consumirlos y consultar la pantalla de
+auditoría se requiere además `--audit` (más memoria).
+
+Sin `--messaging`, los correos y la auditoría asíncrona permanecen desactivados.
+No hace falta modificar `.env` para alternar estos modos.
 
 Para detener el entorno **conservando los datos**:
 
 ```bash
-podman compose --env-file .env -f compose.yaml --profile audit down
+podman compose --env-file .env -f compose.yaml -f compose.messaging.yaml --profile audit down
 ```
 
 No ejecutar los Compose individuales junto con el central. No compartir `.env`

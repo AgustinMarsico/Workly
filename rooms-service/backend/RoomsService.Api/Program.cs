@@ -125,6 +125,7 @@ public class Program
 
             builder.Services.AddWorklyAuthentication(builder.Configuration);
 
+            builder.Services.AddDefaultAWSOptions(builder.Configuration.GetAWSOptions());
             builder.Services.AddAWSService<IAmazonSQS>();
             string? skipAuditQueue = builder.Configuration["SKIP_AUDIT_QUEUE"];
             if (skipAuditQueue?.Equals("true", StringComparison.OrdinalIgnoreCase) == true)

@@ -1,11 +1,18 @@
 # Preparación para publicar Workly
 
+Actualizado: 2026-11-20.
+
 ## Alcance
 
-El monorepo es exclusivamente esta carpeta `workly/`. Se inicializó Git y se
-preparó y verificó el índice; no se hicieron commits ni publicaciones. Los archivos
+El monorepo es exclusivamente esta carpeta `workly/`. Ya existe el commit inicial
+`9a1fdf9` en `main`, publicado en `github.com/AgustinMarsico/Workly`. Los archivos
 de la carpeta superior y el historial de otros repositorios no forman parte del
 candidato y no se modificaron.
+
+Las mejoras posteriores de dependencias, mensajería local y manejo de sesiones
+siguen sin preparar en el índice y sin commit/push. La revisión inicial del índice
+no cubre automáticamente estos cambios: antes de publicarlos hay que revisar y
+escanear el contenido exacto que se prepare.
 
 ## Saneamiento aplicado
 
@@ -41,7 +48,7 @@ Los contenedores, volúmenes, informes temporales y artefactos ignorados no form
 parte de la publicación. Algunos artefactos antiguos pueden conservar rutas de
 compilación o configuraciones anteriores; no deben exportarse junto con el código.
 
-## Verificación posterior
+## Verificación histórica del commit inicial
 
 Se repitió el escaneo local con Gitleaks 8.30.1 y búsquedas contextuales sobre el
 conjunto publicable. Después se verificaron también los blobs exactos del índice
@@ -62,17 +69,45 @@ Git, no sólo los archivos del árbol de trabajo.
 | Arranque principal reconstruido | Migraciones correctas y APIs/frontend con HTTP 200 |
 | Login local y enlaces del README | Verificados |
 | Tests Rooms y Audit | 98 aprobados |
-| Tests del script de arranque | 2 aprobados |
+| Tests del script de arranque en esa revisión | 2 aprobados |
 
 Los informes técnicos redactados están fuera del árbol publicable, en
 `/tmp/opencode/workly-sanitization/`. Los resultados corresponden al contenido
-actual. La verificación adicional del índice se registra en
+de esa revisión inicial. La verificación adicional del índice se registra en
 `/tmp/opencode/workly-staged-audit/`.
+
+## Validaciones de las mejoras locales
+
+- Arranque con `--messaging`: APIs y frontend respondiendo, LocalStack/Mailpit y
+  worker saludables; inicialización idempotente de 2 topics, 3 colas y 2 suscripciones.
+- Invitación, correo en Mailpit, aceptación y login probados por API. Tokens
+  inválidos y reutilizados rechazados. Creación/cancelación de una reserva nueva
+  y sus correos verificadas con un usuario ficticio suscrito.
+- 98 tests .NET, 18 del worker y 6 del arranque aprobados. El worker también pasó
+  su integración con la imagen Podman; auditoría npm de producción: 0 hallazgos
+  conocidos. Esto no equivale a una revisión de todo el sistema o sus imágenes.
+- Último escaneo de la integración LocalStack: 646 archivos publicables, sin
+  valores de secretos del `.env` y sin hallazgos Gitleaks. No fue un escaneo del
+  índice de un nuevo commit. Informes: `/tmp/opencode/workly-local-messaging/`.
+- Corrección posterior del frontend: comprueba el vencimiento de JWT, elimina
+  sesiones guardadas inválidas y vuelve al login ante un 401 autenticado. No
+  cierra sesión por 403/500 ni por credenciales incorrectas en el login, y no
+  reenvía JWT a URLs externas. Pasaron 9 tests de regresión; se reconstruyó su
+  imagen Podman y se verificó el frontend actualizado con HTTP 200.
+- Escaneo posterior a esa corrección: 647 archivos publicables, Gitleaks sin
+  hallazgos y sin valores secretos del `.env`. `git diff --check` limpio. Informes
+  privados: `session-gitleaks.*` dentro de `/tmp/opencode/workly-local-messaging/`.
+- El `.env` privado se conserva. Los registros ficticios de los smoke tests no
+  forman parte de Git. No se automatizó el navegador; el consumidor Audit con
+  SQL Server/LocalStack sigue pendiente de validación integrada.
 
 ## Antes del commit
 
-El contenido exacto del índice ya fue revisado y escaneado. El siguiente paso,
-únicamente cuando se autorice, es crear el commit. No hay remoto configurado.
+- Revisar `git diff` y los archivos nuevos: no agregar `.env`, dumps, correos ni logs.
+- Ejecutar tests y `git diff --check` y repetir el escaneo de los archivos publicables.
+- Una vez autorizado el staging, revisar y escanear el índice exacto antes de
+  crear el commit. El remoto ya existe; no hacer push sin autorización.
+
 No se puede garantizar riesgo cero a partir de un análisis automático.
 Si una credencial se hubiera publicado anteriormente, debe rotarse: borrarla o
 ignorarla no la revoca. No se validaron credenciales contra proveedores externos.

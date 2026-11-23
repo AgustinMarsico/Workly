@@ -27,6 +27,15 @@ const required = (name) => {
 };
 
 const emailDeliveryMode = process.env.EMAIL_DELIVERY_MODE ?? 'brevo';
+if (!['brevo', 'smtp', 'log'].includes(emailDeliveryMode)) {
+  throw new Error('EMAIL_DELIVERY_MODE must be brevo, smtp, or log');
+}
+
+const smtpUsername = process.env.EMAIL_SMTP_USERNAME ?? '';
+const smtpPassword = process.env.EMAIL_SMTP_PASSWORD ?? '';
+if (emailDeliveryMode === 'smtp' && Boolean(smtpUsername) !== Boolean(smtpPassword)) {
+  throw new Error('Set both EMAIL_SMTP_USERNAME and EMAIL_SMTP_PASSWORD, or neither');
+}
 const requiredForMode = (mode, name) => {
   if (emailDeliveryMode !== mode) {
     return process.env[name] ?? '';
@@ -58,8 +67,8 @@ export const config = {
     host: requiredForMode('smtp', 'EMAIL_SMTP_HOST'),
     port: Number(process.env.EMAIL_SMTP_PORT ?? 587),
     useSsl: (process.env.EMAIL_SMTP_USE_SSL ?? 'true').toLowerCase() === 'true',
-    username: requiredForMode('smtp', 'EMAIL_SMTP_USERNAME'),
-    password: requiredForMode('smtp', 'EMAIL_SMTP_PASSWORD'),
+    username: smtpUsername,
+    password: smtpPassword,
     senderEmail:
       process.env.EMAIL_FROM ??
       process.env.BREVO_SENDER_EMAIL ??

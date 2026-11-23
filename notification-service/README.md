@@ -11,6 +11,32 @@ Invitation publisher  → SNS (invitation-topic)  → SQS (invitation-queue)  �
 
 ## Requirements
 
+### Recommended: entirely local with Podman
+
+From the **Workly root**, use the central overlay instead of this service's
+standalone Compose files:
+
+```bash
+python3 scripts/up-local.py --build --messaging
+python3 scripts/check-local-invitation.py --reservations
+```
+
+This starts account-free LocalStack 4.14.0 (SNS/SQS), Mailpit 1.34.0 (SMTP), and
+the worker with dummy AWS credentials. Open **http://localhost:8025** for captured
+mail; nothing is delivered to the Internet. No AWS CLI, Brevo key, LocalStack
+token, Docker socket or host Node installation is needed. The smoke test creates
+a new fictitious user and a new reservation, cancels only that reservation and
+keeps the test records. It verifies invitation acceptance/login and both reservation
+emails through APIs, not browser automation.
+
+LocalStack resources/events are ephemeral (`PERSISTENCE=0`); Mailpit mail is stored
+in a named volume. The overlay also publishes audit events to a FIFO queue. Add
+`--audit` to run the optional SQL Server and Audit consumer (more memory).
+See [local configuration](../CONFIGURACION_LOCAL.md).
+
+### Standalone / external AWS setup
+
+- Node.js 22.16 or newer when running without containers (New Relic requirement).
 - [AWS CLI](https://aws.amazon.com/cli/) configured with valid credentials
 - [Docker](https://www.docker.com/) and Docker Compose
 - [Brevo](https://www.brevo.com/) API key
@@ -57,9 +83,54 @@ On ECS, AWS credentials are provided by **LabRole** (task role). Do not set `AWS
 
 ```bash
 cd worker
-npm install
+npm ci
 npm start
 ```
+
+### Security and regression checks
+
+The worker uses Brevo SDK 6, Nodemailer 10, the updated SQS SDK and New Relic 14.
+Brevo delivery now uses `BrevoClient.transactionalEmails.sendTransacEmail`.
+Node 22.16+ and npm 11.6.2 are declared; the container installs the same npm version.
+
+From `worker/`:
+
+```bash
+npm ci
+npm test
+npm audit --omit=dev
+```
+
+The dependency review reduced the original 23 npm audit findings to **0 known
+findings** in the installed production tree. This is not a guarantee that the
+entire application or container is vulnerability-free. Re-run the audit regularly.
+
+The 18 regression tests use the real Brevo SDK with a fake HTTP transport, the
+real SQS SDK with a local HTTP simulator, and a local SMTP test server. They check
+both queues, invitation and reservation delivery, failed delivery without message
+acknowledgement, configuration, and omission of invitation tokens from email logs.
+They do not need AWS/Brevo credentials and do not send mail to the Internet.
+
+On Linux, the same worker integration test can run the already-built Podman image
+against those simulators instead of starting the worker directly with Node:
+
+```bash
+WORKLY_TEST_IMAGE=localhost/workly-notification:local npm test
+```
+
+This uses a temporary container with host networking to reach the loopback-only
+test servers. Only explicit dummy test settings are forwarded to that container.
+
+`EMAIL_DELIVERY_MODE=smtp` supports SMTP without authentication, such as a local
+Mailpit instance. Set `EMAIL_SMTP_HOST`, `EMAIL_SMTP_PORT=1025` and
+`EMAIL_SMTP_USE_SSL=false` for a plain local SMTP server. Leave username/password
+unset, or provide both. Keep TLS enabled for external SMTP where required.
+`EMAIL_DELIVERY_MODE=log` does not connect to a mail provider and does not print
+the message body. New Relic is disabled when its license key is absent.
+
+The central Compose keeps its offline default; `--messaging` enables the worker
+and the local SNS/SQS/Mailpit integration described above.
+See [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for versions, scope and limitations.
 
 ### Run with Docker
 

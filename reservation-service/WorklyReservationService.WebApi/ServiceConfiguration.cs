@@ -40,7 +40,7 @@ public static class ServiceConfiguration
         services.AddScoped<IAreaNotificationRecipientRepository, AreaNotificationRecipientRepository>();
         services.AddScoped<ReservationNotificationService>();
         services.AddRoomsServiceHttpClient<IRoomClient, MainServiceRoomClient>(configuration);
-        services.AddMainServiceHttpClient<IAreaUsersClient, MainServiceAreaUsersClient>(configuration);
+        services.AddIdentityServiceHttpClient<IAreaUsersClient, MainServiceAreaUsersClient>(configuration);
         services.AddIdentityServiceHttpClient<IUserClient, MainServiceUserClient>(configuration);
         services.AddIdentityServiceHttpClient<IApiKeyClient, MainServiceApiKeyClient>(configuration);
 
@@ -53,30 +53,6 @@ public static class ServiceConfiguration
         {
             services.AddScoped<IReservationNotificationPublisher, SnsReservationNotificationPublisher>();
         }
-    }
-
-    private static void AddMainServiceHttpClient<TClient, TImplementation>(
-        this IServiceCollection services,
-        IConfiguration configuration)
-        where TClient : class
-        where TImplementation : class, TClient
-    {
-        services.AddHttpClient<TClient, TImplementation>(client =>
-        {
-            string? baseUrl = configuration["MainService:BaseUrl"];
-            if (!string.IsNullOrWhiteSpace(baseUrl))
-            {
-                client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
-            }
-
-            if (int.TryParse(configuration["MainService:TimeoutSeconds"], out int timeoutSeconds)
-                && timeoutSeconds > 0)
-            {
-                client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
-            }
-        })
-        .AddHttpMessageHandler<ServiceKeyHttpMessageHandler>()
-        .AddHttpMessageHandler<CorrelationIdDelegatingHandler>();
     }
 
     private static void AddRoomsServiceHttpClient<TClient, TImplementation>(

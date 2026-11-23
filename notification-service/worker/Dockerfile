@@ -3,7 +3,7 @@ FROM docker.io/library/node:22-alpine
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN npm install --global npm@11.6.2 && npm ci --omit=dev --no-fund
 
 COPY src ./src
 COPY newrelic.cjs ./

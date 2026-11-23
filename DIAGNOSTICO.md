@@ -1,5 +1,30 @@
 # Workly: compilación y requisitos de ejecución
 
+## Actualización: LocalStack y Mailpit integrados
+
+`python3 scripts/up-local.py --build --messaging` habilita SNS/SQS, SMTP capturado
+y el worker con Podman, sin cuentas externas. Pasó la prueba de invitación,
+aceptación y login por APIs, además de creación/cancelación de reservas con sus
+correos. Se corrigió la consulta de destinatarios de Reservation hacia Identity.
+Se respetan las preferencias de desuscripción existentes.
+
+Las colas de correo quedaron vacías después de entregar; la cola FIFO contiene
+eventos de auditoría. Audit se reconstruyó, pero SQL Server/consumidor no se
+arrancaron en esta integración. Pasaron 98 tests .NET, 18 del worker (también con
+su imagen Podman) y 6 del arranque. `.env` conserva su hash original. Sin commit
+ni push. Ver `CONFIGURACION_LOCAL.md` y `VALIDACION_CONTENEDORES.md`.
+
+## Actualización: revisión de seguridad del worker de notificaciones
+
+Se actualizaron sus dependencias y se adaptó el envío a Brevo SDK 6. La auditoría
+npm de producción pasó de 23 hallazgos a 0 conocidos, tanto localmente como dentro
+de la imagen Podman reconstruida. Pasaron 18 tests, incluida la entrega SMTP y
+el consumo de colas con simuladores locales y con el worker ejecutándose en Podman.
+Ver `notification-service/SECURITY_REVIEW.md` para versiones, alcance y limitaciones.
+Los apartados posteriores conservan el diagnóstico inicial como referencia histórica.
+El Compose base mantiene el modo sin notificaciones; el overlay opcional ya
+integra LocalStack/Mailpit. No se hicieron commits ni push en esta revisión.
+
 ## Actualización: construcción y migraciones verificadas (punto 6)
 
 Las siete imágenes se construyeron con Podman. Las migraciones de las cinco bases

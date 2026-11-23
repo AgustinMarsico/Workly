@@ -1,0 +1,113 @@
+# Extensión opcional: sólo emuladores locales, sin cuentas AWS/Brevo.
+# Usar mediante: python3 scripts/up-local.py --messaging
+x-local-aws: &local-aws
+  AWS__ServiceURL: http://localstack:4566
+  AWS__AuthenticationRegion: ${LOCAL_AWS_REGION:-us-east-1}
+  AWS_REGION: ${LOCAL_AWS_REGION:-us-east-1}
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  AWS_SESSION_TOKEN: ""
+  AWS_EC2_METADATA_DISABLED: "true"
+  SQS_AUDIT_QUEUE_URL: http://localstack:4566/queue/${LOCAL_AWS_REGION:-us-east-1}/000000000000/audit-events-queue.fifo
+  SKIP_AUDIT_QUEUE: "false"
+
+services:
+  localstack:
+    image: docker.io/localstack/localstack:4.14.0
+    environment:
+      SERVICES: sns,sqs
+      AWS_DEFAULT_REGION: ${LOCAL_AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      LOCALSTACK_HOST: localstack:4566
+      SQS_ENDPOINT_STRATEGY: path
+      EAGER_SERVICE_LOADING: "1"
+      PERSISTENCE: "0"
+      DISABLE_EVENTS: "1"
+    ports:
+      - "127.0.0.1:${LOCALSTACK_PORT:-4566}:4566"
+    volumes:
+      - ./notification-service/localstack/init/ready.d/init-queues.sh:/etc/localstack/init/ready.d/10-workly-messaging.sh:ro,Z
+    healthcheck:
+      test:
+        - CMD
+        - python3
+        - -c
+        - "import json,urllib.request; s=json.load(urllib.request.urlopen('http://127.0.0.1:4566/_localstack/init/ready')); assert s.get('completed') and s.get('scripts') and all(x['state']=='SUCCESSFUL' for x in s['scripts'])"
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+
+  mailpit:
+    image: docker.io/axllent/mailpit:v1.34.0
+    environment:
+      MP_DATABASE: /data/mailpit.db
+    volumes:
+      - mailpit-data:/data
+    ports:
+      - "127.0.0.1:${MAILPIT_PORT:-8025}:8025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  notification-worker:
+    image: localhost/workly-notification:local
+    build:
+      context: ./notification-service/worker
+      dockerfile: Dockerfile
+    environment:
+      AWS_REGION: ${LOCAL_AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_SESSION_TOKEN: ""
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_ENDPOINT_URL: http://localstack:4566
+      SQS_QUEUE_URL: http://localstack:4566/queue/${LOCAL_AWS_REGION:-us-east-1}/000000000000/notification-queue
+      SQS_INVITATION_QUEUE_URL: http://localstack:4566/queue/${LOCAL_AWS_REGION:-us-east-1}/000000000000/invitation-queue
+      INVITATION_BASE_URL: http://localhost:${FRONTEND_PORT:-8080}/invitations/accept
+      EMAIL_DELIVERY_MODE: smtp
+      EMAIL_SMTP_HOST: mailpit
+      EMAIL_SMTP_PORT: "1025"
+      EMAIL_SMTP_USE_SSL: "false"
+      EMAIL_SMTP_USERNAME: ""
+      EMAIL_SMTP_PASSWORD: ""
+      EMAIL_FROM: noreply@workly.local
+      HEALTH_PORT: "8080"
+      NEW_RELIC_ENABLED: "false"
+    depends_on:
+      localstack:
+        condition: service_healthy
+      mailpit:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  company-api:
+    environment: *local-aws
+
+  identity-api:
+    environment:
+      <<: *local-aws
+      SKIP_INVITATION_NOTIFICATION: "false"
+      SNS_INVITATION_TOPIC_ARN: arn:aws:sns:${LOCAL_AWS_REGION:-us-east-1}:000000000000:invitation-topic
+
+  rooms-api:
+    environment: *local-aws
+
+  reservation-api:
+    environment:
+      <<: *local-aws
+      SKIP_RESERVATION_NOTIFICATION: "false"
+      SNS_RESERVATION_TOPIC_ARN: arn:aws:sns:${LOCAL_AWS_REGION:-us-east-1}:000000000000:notification-topic
+
+  audit-api:
+    environment: *local-aws
+
+volumes:
+  mailpit-data:

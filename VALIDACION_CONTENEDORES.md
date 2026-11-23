@@ -112,8 +112,8 @@ python3 scripts/test_up_local.py
 ```
 
 Las etapas comprueban bases saludables, códigos de salida de migraciones y
-respuestas HTTP antes de anunciar que el sistema está listo. Los dos tests del
-script verifican orden, interrupción por migración fallida y redacción de secretos.
+respuestas HTTP antes de anunciar que el sistema está listo. Los tests del
+script verifican orden, interrupción por fallos y redacción de secretos.
 No se elimina ningún volumen ante fallos.
 
 Acceso: **http://localhost:8080**. Credenciales **sólo de desarrollo**:
@@ -124,14 +124,40 @@ Acceso: **http://localhost:8080**. Credenciales **sólo de desarrollo**:
 No usar estos usuarios en un entorno público. Bases y APIs están publicadas según
 `CONFIGURACION_LOCAL.md`; las bases no exponen puertos al host.
 
+## Validación posterior: mensajería local (2026-11-20)
+
+- Arranque con `--build --messaging`: LocalStack 4.14.0, Mailpit 1.34.0 y worker
+  saludables; frontend y cuatro APIs de negocio con HTTP 200. Sin socket Docker,
+  token de LocalStack ni credenciales externas. Imagen de Audit reconstruida.
+- Dos topics, tres colas y dos suscripciones; inicialización repetida sin duplicados.
+- `python3 scripts/check-local-invitation.py --reservations`: invitación, entrega
+  en Mailpit, enlace local, aceptación y login correctos. Token inválido → 400;
+  aceptación → 200; reutilización → 409. Reserva nueva → 201; cancelación → 200;
+  ambos correos recibidos. La prueba conserva el usuario y registros ficticios.
+- Se corrigió el cliente de destinatarios para usar Identity en lugar de Company.
+  Un usuario existente desuscrito no recibió correos; no se cambió su preferencia.
+- Ambas colas de correo quedaron con 0 mensajes pendientes y 0 en vuelo.
+  Se comprobaron 16 eventos pendientes en la FIFO de auditoría. No se inició el
+  consumidor Audit/SQL Server en esta ejecución: su consumo sigue sin validar aquí.
+- El arranque recrea sólo aplicaciones, no bases, para aplicar imágenes actuales.
+  Se verificó la coincidencia entre imágenes construidas y contenedores de las
+  cinco aplicaciones backend/worker. Los resets transitorios de conexión se reintentan.
+- Regresión: 6 tests del arranque, 18 del worker y 98 .NET aprobados. La suite del
+  worker también pasó con su imagen Podman; `npm audit --omit=dev` en esa imagen:
+  0 hallazgos conocidos. Continúan las advertencias MySqlConnector indicadas abajo.
+- `.env` mantiene el hash original. Revisión de 646 archivos publicables sin
+  valores de sus secretos; Gitleaks sin hallazgos. `git diff --check` limpio.
+- No hubo automatización del navegador ni envío a Internet. LocalStack no persiste
+  eventos al recrearse; Mailpit conserva los correos. Sin commit ni push.
+
 ## Pendientes de seguridad
 
 - MySqlConnector: advertencias NU1902 ya documentadas en el diagnóstico inicial.
-- `npm audit --omit=dev` del worker informa **23 vulnerabilidades**: 2 bajas,
-  14 moderadas, 5 altas y 2 críticas. Las críticas afectan `form-data`/`request`
-  a través de Brevo; la solución sugerida por npm incluye una actualización mayor
-  de `@getbrevo/brevo`, que requiere revisar la integración. También hay alertas
-  en Nodemailer y otras dependencias.
-- No se ejecutó `npm audit fix --force` ni se hicieron actualizaciones mayores.
-  Mantener el worker desactivado hasta revisar estos problemas antes de habilitar
-  la mensajería. Informe JSON: `/tmp/opencode/workly-containers/notification-audit.json`.
+- **Worker revisado posteriormente:** la auditoría inicial informó 23
+  vulnerabilidades, incluidas 2 críticas. Se actualizaron las dependencias y se
+  adaptó la integración Brevo; la auditoría actual de producción informa **0
+  hallazgos conocidos**, también dentro de la imagen reconstruida. Pasaron 18 tests.
+  Ver [revisión de seguridad](notification-service/SECURITY_REVIEW.md).
+- No se utilizó `npm audit fix --force`. El worker se activa de forma opcional con
+  `--messaging`, usando LocalStack y Mailpit. El informe inicial se conserva como referencia histórica
+  en `/tmp/opencode/workly-containers/notification-audit.json`.
